@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ar">
+
+<head>
+    <meta charset="utf-8">
+    <title>Interactive Earth & Sun Maps</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background: white;
+            color: white;
+        }
+
+        .map-container {
+            width: 100%;
+            height: 80vh;
+            position: relative;
+            margin-bottom: 20px;
+        }
+
+        canvas.drawCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 400;
+            pointer-events: none;
+        }
+
+        .controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 8px;
+            z-index: 1500;
+        }
+
+        .controls button {
+            margin: 5px;
+            padding: 5px 10px;
+            background-color: #333;
+            color: #efef55;
+        }
+
+        .section {
+            padding: 10px;
+            background: black;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .section h2 {
+            margin-top: 0;
+        }
+
+        textarea#notes {
+            width: 75%;
+            height: 250px;
+            border-radius: 20px;
+            padding: 20px;
+        }
+
+        canvas#mindmap {
+            width: 100%;
+            height: 300px;
+            border: 1px solid #ccc;
+            display: block;
+            background: #fff;
+            cursor: crosshair;
+        }
+
+        .label-tooltip {
+            background: rgba(255, 255, 255, 0.9);
+            color: black;
+            font-weight: bold;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 12px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="earthMap" class="map-container"></div>
+    <canvas id="earthDraw" class="drawCanvas"></canvas>
+    <div class="controls" id="earthControls">
+        <button id="earthDrawBtn">Draw Mode</button>
+        <button id="earthMoveBtn">Move Mode</button>
+        <button id="earthClearBtn">Clear Drawing</button>
+    </div>
+
+    <div id="sunMap" class="map-container"></div>
+    <canvas id="sunDraw" class="drawCanvas"></canvas>
+    <div class="controls" id="sunControls">
+        <button id="sunDrawBtn">Draw Mode</button>
+        <button id="sunMoveBtn">Move Mode</button>
+        <button id="sunClearBtn">Clear Drawing</button>
+    </div>
+
+    <div class="section">
+        <h2>Notes</h2>
+        <textarea id="notes" placeholder="Write your notes here....."></textarea><br>
+        <button id="saveNotes">Save Notes</button>
+    </div>
+
+    <div class="section">
+        <h2>Mind Map</h2>
+        <button id="clearMind">Clear Drawing</button>
+        <canvas id="mindmap"></canvas>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        function initMap(divId, imageSrc, imageWidth, imageHeight, maxZoom, markers = []) {
+            const map = L.map(divId, {
+                crs: L.CRS.Simple,
+                minZoom: -5,
+                maxZoom: maxZoom,
+                zoomControl: true
+            });
+            const southWest = map.unproject([0, imageHeight], maxZoom - 1);
+            const northEast = map.unproject([imageWidth, 0], maxZoom - 1);
+            const bounds = new L.LatLngBounds(southWest, northEast);
+            L.imageOverlay(imageSrc, bounds).addTo(map);
+            map.fitBounds(bounds);
+
+            markers.forEach(p => {
+                const pos = map.unproject([p.x, p.y], maxZoom - 1);
+                const marker = L.circleMarker(pos, {
+                    radius: 10,
+                    color: 'black',
+                    fillColor: 'yellow',
+                    fillOpacity: 0.8
+                }).addTo(map);
+
+                const popupContent = `<b>${p.name}</b><br>${p.info || ""}<br>${p.climate || ""}<br>${p.fact || ""}<br><a href="${p.img}" target="_blank"><img src="${p.img}" width="150"></a>`;
+                marker.bindPopup(popupContent);
+
+                // const label = L.divIcon({
+                //     className: 'label-tooltip',
+                //     html: p.name,
+                //     iconSize: [100, 20],
+                //     iconAnchor: [50, -10]
+                // });
+                // L.marker(pos, { icon: label, interactive: false }).addTo(map);
+
+                marker.on('popupopen', function () {
+                    const msg = new SpeechSynthesisUtterance();
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = popupContent;
+                    msg.text = tempDiv.innerText;
+                    msg.lang = 'en-US';
+                    speechSynthesis.speak(msg);
+                });
+
+
+
+            });
+
+            return map;
+        }
+
+        function initDrawing(canvasId, drawBtnId, moveBtnId, clearBtnId) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            let drawing = false, drawMode = false, lastPos = { x: 0, y: 0 };
+
+            function resizeCanvas() {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            canvas.addEventListener('mousedown', e => {
+                if (!drawMode) return;
+                drawing = true;
+                lastPos = { x: e.offsetX, y: e.offsetY };
+            });
+            canvas.addEventListener('mousemove', e => {
+                if (!drawing) return;
+                const x = e.offsetX, y = e.offsetY;
+                ctx.beginPath();
+                ctx.moveTo(lastPos.x, lastPos.y);
+                ctx.lineTo(x, y);
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                lastPos = { x, y };
+            });
+            canvas.addEventListener('mouseup', e => { drawing = false; });
+            canvas.addEventListener('mouseleave', e => { drawing = false; });
+
+            document.getElementById(drawBtnId).addEventListener('click', () => {
+                drawMode = true;
+                canvas.style.pointerEvents = 'auto';
+                canvas.style.cursor = 'crosshair';
+            });
+            document.getElementById(moveBtnId).addEventListener('click', () => {
+                drawMode = false;
+                canvas.style.pointerEvents = 'none';
+                canvas.style.cursor = 'grab';
+            });
+            document.getElementById(clearBtnId).addEventListener('click', () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            });
+        }
+
+        const earthMarkers = [
+            { name: "Himalayas", x: 2950, y: 680, info: "-Acts as “Asia’s Water Tower,” feeding major rivers like the Ganges and Yangtze.", climte: "-Glacier melt affects water supply for hundreds of millions.", fact: "-The highest mountians in the world", img: "Himalaya.jpeg" },
+            { name: "Nile River", x: 2400, y: 800, info: "-Longest river in the world along 11 countries; vital for agriculture and drinking water.", climate: "-Seasonal flooding patterns influence millions of lives.", img: "River_Nile_map.svg.png" },
+            { name: "Gulf of Mexico", x: 1000, y: 760, info: "-Rich in marine life and vital for oil and fishing industries.", climate: "-Frequently hit by hurricanes; contains a large “Dead Zone” from pollution.", img: "Gulf_of_Mexico_ETOPO_2022_(labeled).png" },
+            { name: "Greenland", x: 1600, y: 200, info: "-Second-largest ice sheet on Earth after Antarctica", climate: "-Melting ice raises sea levels and disrupts ocean currents", fact: "-Ice loss in Greenland has increased sixfold since the 1990s.", img: "greenisland.jpeg" },
+            { name: "Atlantic Ocean", x: 2250, y: 1050, info: "-Dense rainforest", img: "atlantic.jpg" },
+            { name: "Congo Basin", x: 2250, y: 1050, info: "-Second-largest rainforest on Earth.", climate: "-Stores massive carbon amounts; essential for regulating rainfall in Africa.", img: "congo.webp" },
+            { name: "Mount Kilauea,Hawaii", x: 280, y: 800, info: "-Located in USA and considered among the world’s most active volcanoes.", climte: "-Creates new land, releases gases that affect air quality.", img: "kilauea.jpeg" },
+            { name: "Mount Enta, Italy", x: 280, y: 800, info: "-Europe’s most active volcano.", climate: "-Eruptions release gases and ash, shaping local climate and fertile soil.", img: "kilauea.jpeg" },
+            { name: "Mount Merapi,Indonesia", x: 3300, y: 1110, info: "-One of the most dangerous volcanoes in Asia and located in Java Island", climate: "-Frequent eruptions affect agriculture and air quality.", img: "merapi.jpeg" },
+            { name: "Antartactica", x: 2250, y: 2000, info: " -Holds about 70% of the world’s freshwater as ice.", climate: -"Melting ice contributes to global sea level rise.", fact: " -Reflects more than 80% of sunlight, helping regulate Earth’s temperature.", img: "Antarctica.jpg" },
+            { name: "Amazon Basin", x: 1250, y: 1100, info: " -World's largest rainsforest - across 9 countries", climate: "-Absorbs vast amounts of CO₂ and regulates global rainfall patterns.", fact: " -Lost over 17% of its forest cover in the last 50 years.", img: "amazon.jpeg" },
+            { name: "Caribbean Sea", x: 1150, y: 850, info: "-Home to diverse marine ecosystems and coral reefs.", climate: "-Rising sea temperatures and hurricanes threaten biodiversity.", img: "caribbean.png" },
+            { name: "Philippine Sea", x: 3500, y: 770, info: "-Located in Western Pacific Ocean near the Philippines and Japan - Highly active tectonic and oceanic zone.", climate: "-Frequent typhoons and ocean warming affect regional weather.", img: "philibbine.jpg" },
+
+        ];
+        const earthMap = initMap('earthMap', 'earthnight.jpg', 4096, 2048, 10, earthMarkers);
+        initDrawing('earthDraw', 'earthDrawBtn', 'earthMoveBtn', 'earthClearBtn');
+
+
+        const sunMarkers = [
+            { name: "core", x: 1710, y: 390, info: "The central region where nuclear fusion produces the Sun’s energy.", img: "cor.jpeg" },
+            { name: "Photosphere", x: 3330, y: 940, info: "The visible surface of the Sun that emits light we can see.", img: "photo.jpeg" },
+            { name: "choromosphere", x: 3350, y: 2650, info: "A thin, reddish layer above the photosphere, visible during eclipses.", img: "chrom.jpeg" },
+            { name: "Flare", x: 3750, y: 2250, info: "Sudden, intense bursts of radiation and energy from the Sun’s surface.", img: "flare.webp" },
+            { name: "Sun Spots", x: 3850, y: 1500, info: "Dark, cooler regions on the Sun’s surface caused by magnetic activity.", img: "spot.jpeg" },
+            { name: "Subsurfacce flows ", x: 3050, y: 600, info: "Movements of plasma beneath the Sun’s surface affecting magnetic fields.", img: "flows.jpeg" },
+            { name: "Prominence", x: 410, y: 1450, info: "Large, bright loops of hot plasma extending from the Sun’s surface.", img: "prom.jpeg" },
+        ];
+        const sunMap = initMap('sunMap', 'sun.webp', 4300, 3100, 10, sunMarkers); 
+        initDrawing('sunDraw', 'sunDrawBtn', 'sunMoveBtn', 'sunClearBtn');
+
+        const notes = document.getElementById('notes');
+        if (localStorage.getItem('notesContent')) notes.value = localStorage.getItem('notesContent');
+        document.getElementById('saveNotes').addEventListener('click', () => {
+            localStorage.setItem('notesContent', notes.value);
+            alert("Your notes are saved ✅");
+        });
+
+        const mindCanvas = document.getElementById('mindmap');
+        const mCtx = mindCanvas.getContext('2d');
+        function resizeMindCanvas() {
+            mindCanvas.width = mindCanvas.offsetWidth;
+            mindCanvas.height = mindCanvas.offsetHeight;
+        }
+        resizeMindCanvas();
+        window.addEventListener('resize', resizeMindCanvas);
+
+        let drawingMind = false, lastMind = { x: 0, y: 0 };
+        mindCanvas.addEventListener('mousedown', e => {
+            drawingMind = true;
+            const rect = mindCanvas.getBoundingClientRect();
+            lastMind = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        });
+        mindCanvas.addEventListener('mousemove', e => {
+            if (!drawingMind) return;
+            const rect = mindCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+            mCtx.beginPath();
+            mCtx.moveTo(lastMind.x, lastMind.y);
+            mCtx.lineTo(x, y);
+            mCtx.strokeStyle = 'blue';
+            mCtx.lineWidth = 2;
+            mCtx.stroke();
+            lastMind = { x, y };
+        });
+        mindCanvas.addEventListener('mouseup', e => { drawingMind = false; });
+        mindCanvas.addEventListener('mouseleave', e => { drawingMind = false; });
+        document.getElementById('clearMind').addEventListener('click', () => {
+            mCtx.clearRect(0, 0, mindCanvas.width, mindCanvas.height);
+        });
+    </script>
+</body>
+
+</html>
